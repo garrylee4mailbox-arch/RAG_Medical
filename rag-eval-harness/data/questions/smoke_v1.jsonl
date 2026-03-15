@@ -1,0 +1,3 @@
+{"id":"smk001","bucket":"general","question":"What are common symptoms of influenza?","gold_answer":"Fever, cough, sore throat, muscle aches, fatigue."}
+{"id":"smk002","bucket":"cardiology","question":"Can high blood pressure cause headaches?","gold_answer":"Usually no, but extremely high blood pressure (crisis) can."}
+{"id":"smk003","bucket":"dermatology","question":"What is the difference between eczema and psoriasis?","gold_answer":"Eczema is often itchy inflamed patches; psoriasis is thicker scaly plaques with different pathophysiology."}

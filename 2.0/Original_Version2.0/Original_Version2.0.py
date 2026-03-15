@@ -23,7 +23,7 @@ EMBEDDING_MODEL = 'nomic-embed-text'
 LANGUAGE_MODEL = 'llama3'
 TEXT_FILE = 'cat-facts.txt'
 VECTOR_DB = []  # Will hold all embeddings and text chunks
-DATA_DIR = r"C:\Users\GuanlinLi\Desktop\RAG_Medical\Chinese-medical-dialogue-data-master" #absolute path to the data directory
+DATA_DIR = r"D:\RAG development\RAG_Medical\Chinese-medical-dialogue-data-master" #absolute path to the data directory
 # ==============================================================================
 
 # ==============================================================================

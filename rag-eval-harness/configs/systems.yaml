@@ -1,0 +1,21 @@
+rag:
+  mode: http
+  base_url: http://127.0.0.1:8008
+  auto_index: true
+  top_n: 5
+  score_threshold: 0.0
+  data_sources:
+    - data/documents
+  cache_dir: null
+
+ollama_llm_only:
+  model: llama3
+  temperature: 0.0
+  max_tokens: 256
+  # base_url: http://localhost:11434
+
+openai_llm_only:
+  model: gpt-3.5-turbo
+  temperature: 0.0
+  max_tokens: 256
+  # base_url:
