@@ -13,5 +13,8 @@ def _check(path: Path):
 def test_smoke_questions():
     _check(Path(__file__).resolve().parents[1] / "data/questions/smoke_v1.jsonl")
 
+def test_smoke_v2_questions():
+    _check(Path(__file__).resolve().parents[1] / "data/questions/smoke_v2.0.jsonl")
+
 def test_full_questions():
     _check(Path(__file__).resolve().parents[1] / "data/questions/full_v1.jsonl")
