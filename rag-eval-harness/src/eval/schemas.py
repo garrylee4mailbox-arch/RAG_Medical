@@ -17,5 +17,9 @@ class AnswerRecord:
     question: str
     system_name: str
     answer: str
+    gold_answer: Optional[str] = None
+    answer_similarity: Optional[float] = None
+    normalized_answer_for_scoring: Optional[str] = None
+    normalized_gold_answer_for_scoring: Optional[str] = None
     contexts: List[Dict[str, Any]] = field(default_factory=list)
     meta: Dict[str, Any] = field(default_factory=dict)

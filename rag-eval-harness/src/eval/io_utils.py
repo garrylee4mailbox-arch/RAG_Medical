@@ -76,7 +76,7 @@ def aggregate_metrics(records: List[AnswerRecord]) -> List[Dict[str, Any]]:
 
     rows: List[Dict[str, Any]] = []
     for (system, bucket), recs in groups.items():
-        top_scores=[]; mean_scores=[]; rc=[]; refusals=0
+        top_scores=[]; mean_scores=[]; rc=[]; refusals=0; answer_scores=[]
         for r in recs:
             rc.append(int(r.meta.get("retrieval_count", 0)))
             scores=[float(c.get("score",0.0)) for c in (r.contexts or [])]
@@ -84,6 +84,8 @@ def aggregate_metrics(records: List[AnswerRecord]) -> List[Dict[str, Any]]:
             mean_scores.append(sum(scores)/len(scores) if scores else 0.0)
             if is_refusal(r.answer):
                 refusals += 1
+            if r.answer_similarity is not None:
+                answer_scores.append(float(r.answer_similarity))
         n=len(recs)
         rows.append({
             "system": system,
@@ -93,5 +95,10 @@ def aggregate_metrics(records: List[AnswerRecord]) -> List[Dict[str, Any]]:
             "top_score_avg": float(np.mean(top_scores)) if n else 0.0,
             "avg_score_avg": float(np.mean(mean_scores)) if n else 0.0,
             "refusal_rate": float(refusals/n) if n else 0.0,
+            "answer_similarity_avg": float(np.mean(answer_scores)) if answer_scores else None,
+            "answer_scored_rate": float(len(answer_scores)/n) if n else 0.0,
+            "answer_similarity_std": float(np.std(answer_scores)) if answer_scores else None,
+            "answer_similarity_min": float(np.min(answer_scores)) if answer_scores else None,
+            "answer_similarity_max": float(np.max(answer_scores)) if answer_scores else None,
         })
     return rows

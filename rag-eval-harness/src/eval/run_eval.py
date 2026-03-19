@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse, os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,9 +14,57 @@ from ..rag.rag_api_client import RagApiClient
 from ..rag import rag_config as rag_defaults
 from ..llm.ollama_client import OllamaClient
 from ..llm.openai_client import OpenAIClient
+from .answer_similarity_scoring import AnswerSimilarityScorer, build_answer_similarity_scorer
 from .schemas import AnswerRecord
 from .io_utils import load_questions, write_jsonl, write_csv, snapshot_config, aggregate_metrics
 from .report import generate_report
+
+LOGGER = logging.getLogger(__name__)
+
+
+def build_answer_record(
+    *,
+    run_id: str,
+    question_id: str,
+    bucket: str,
+    question: str,
+    gold_answer: Optional[str],
+    system_name: str,
+    answer: str,
+    contexts: List[Dict[str, Any]],
+    meta: Dict[str, Any],
+    scorer: Optional[AnswerSimilarityScorer],
+) -> AnswerRecord:
+    answer_similarity = None
+    normalized_answer = None
+    normalized_gold_answer = None
+
+    if scorer is not None:
+        try:
+            similarity_result = scorer.score_answer_similarity(answer=answer, gold_answer=gold_answer)
+            answer_similarity = similarity_result.mapped_similarity
+            normalized_answer = similarity_result.normalized_answer
+            normalized_gold_answer = similarity_result.normalized_gold_answer
+            if similarity_result.raw_cosine_similarity is not None:
+                meta = dict(meta)
+                meta["answer_similarity_raw_cosine"] = similarity_result.raw_cosine_similarity
+        except Exception as exc:
+            LOGGER.warning("Answer similarity scoring failed for %s/%s: %s", system_name, question_id, exc)
+
+    return AnswerRecord(
+        run_id=run_id,
+        question_id=question_id,
+        bucket=bucket,
+        question=question,
+        system_name=system_name,
+        answer=answer,
+        gold_answer=gold_answer,
+        answer_similarity=answer_similarity,
+        normalized_answer_for_scoring=normalized_answer,
+        normalized_gold_answer_for_scoring=normalized_gold_answer,
+        contexts=contexts,
+        meta=meta,
+    )
 
 def parse_bool(s: Optional[str]) -> Optional[bool]:
     if s is None:
@@ -91,6 +140,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         c = systems_cfg["openai_llm_only"]
         openai_cli = OpenAIClient(model=c.get("model","gpt-3.5-turbo"), temperature=c.get("temperature",0.0), max_tokens=c.get("max_tokens",256), base_url=c.get("base_url"))
 
+    answer_scorer = build_answer_similarity_scorer(systems_cfg.get("answer_scoring"))
+
     records: List[AnswerRecord] = []
     pbar = tqdm(total=len(questions)*len(system_names), desc="Evaluating", unit="answer")
     for q in questions:
@@ -108,22 +159,52 @@ def main(argv: Optional[List[str]] = None) -> None:
                     res["meta"].setdefault("latency_ms_total", 0.0)
                     res["meta"].setdefault("latency_ms_retrieve", 0.0)
                     res["meta"].setdefault("latency_ms_generate", res["meta"].get("latency_ms_total", 0.0))
-                records.append(AnswerRecord(run_id=run_id, question_id=q.id, bucket=q.bucket, question=q.question, system_name="rag",
-                                            answer=res.get("answer",""), contexts=res.get("contexts",[]), meta=res.get("meta",{})))
+                records.append(build_answer_record(
+                    run_id=run_id,
+                    question_id=q.id,
+                    bucket=q.bucket,
+                    question=q.question,
+                    gold_answer=q.gold_answer,
+                    system_name="rag",
+                    answer=res.get("answer",""),
+                    contexts=res.get("contexts",[]),
+                    meta=res.get("meta",{}),
+                    scorer=answer_scorer,
+                ))
             elif sysname == "ollama_llm_only":
                 assert ollama is not None
                 ans, meta = ollama.generate(q.question)
                 meta.setdefault("retrieval_count", 0)
-                records.append(AnswerRecord(run_id=run_id, question_id=q.id, bucket=q.bucket, question=q.question, system_name=sysname,
-                                            answer=ans, contexts=[], meta=meta))
+                records.append(build_answer_record(
+                    run_id=run_id,
+                    question_id=q.id,
+                    bucket=q.bucket,
+                    question=q.question,
+                    gold_answer=q.gold_answer,
+                    system_name=sysname,
+                    answer=ans,
+                    contexts=[],
+                    meta=meta,
+                    scorer=answer_scorer,
+                ))
             elif sysname == "openai_llm_only":
                 if openai_cli is None: 
                     pbar.update(1); 
                     continue
                 ans, meta = openai_cli.generate(q.question)
                 meta.setdefault("retrieval_count", 0)
-                records.append(AnswerRecord(run_id=run_id, question_id=q.id, bucket=q.bucket, question=q.question, system_name=sysname,
-                                            answer=ans, contexts=[], meta=meta))
+                records.append(build_answer_record(
+                    run_id=run_id,
+                    question_id=q.id,
+                    bucket=q.bucket,
+                    question=q.question,
+                    gold_answer=q.gold_answer,
+                    system_name=sysname,
+                    answer=ans,
+                    contexts=[],
+                    meta=meta,
+                    scorer=answer_scorer,
+                ))
             pbar.update(1)
     pbar.close()
 
