@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import csv
 import json
+import random
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 
 @dataclass(frozen=True)
@@ -18,36 +19,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = REPO_ROOT.parent
 SOURCE_ROOT = PROJECT_ROOT / "Chinese-medical-dialogue-data-master"
 OUTPUT_PATH = REPO_ROOT / "data" / "questions" / "smoke_v2.0.jsonl"
-
-# Fixed row indices keep regeneration deterministic and directly traceable to
-# the original CSVs. The output uses the raw ask/answer fields with whitespace
-# normalization only.
-SELECTIONS: Dict[str, List[Selection]] = {
-    "Oncology": [
-        Selection(0),
-        Selection(1),
-        Selection(22),
-        Selection(35),
-        Selection(44),
-        Selection(62),
-        Selection(80),
-        Selection(88),
-        Selection(97),
-        Selection(184),
-    ],
-    "Pediatric": [
-        Selection(0),
-        Selection(74),
-        Selection(188),
-        Selection(194),
-        Selection(195),
-        Selection(197),
-        Selection(198),
-        Selection(199),
-        Selection(201),
-        Selection(202),
-    ],
-}
+SOURCE_GROUPS: Tuple[str, ...] = ("Oncology", "Pediatric")
+SMOKE_SAMPLE_SIZE = 10
 
 
 def normalize_text(value: str) -> str:
@@ -110,29 +83,31 @@ def make_record(
 
 
 def build_records() -> List[Dict[str, object]]:
+    # Smoke is limited to 10 randomly sampled questions total for faster runs.
     records: List[Dict[str, object]] = []
-    seen_sources = set()
+    candidates: List[Tuple[str, Path, Selection, Dict[str, str]]] = []
 
-    for source_group, selections in SELECTIONS.items():
+    for source_group in SOURCE_GROUPS:
         source_csv = find_source_csv(source_group)
         rows = load_rows(source_csv)
+        for row_index, row in enumerate(rows):
+            candidates.append((source_group, source_csv, Selection(row_index), row))
 
-        for ordinal, selection in enumerate(selections, start=1):
-            if selection.row_index >= len(rows):
-                raise IndexError(f"Row {selection.row_index} is out of range for {source_csv}")
-            source_key = (source_group, selection.row_index)
-            if source_key in seen_sources:
-                raise ValueError(f"Duplicate source row selected: {source_group} row {selection.row_index}")
-            seen_sources.add(source_key)
-            records.append(
-                make_record(
-                    source_csv=source_csv,
-                    row=rows[selection.row_index],
-                    selection=selection,
-                    source_group=source_group,
-                    ordinal=ordinal,
-                )
+    if len(candidates) < SMOKE_SAMPLE_SIZE:
+        raise ValueError(f"Expected at least {SMOKE_SAMPLE_SIZE} candidate rows, found {len(candidates)}")
+
+    ordinals: Dict[str, int] = {}
+    for source_group, source_csv, selection, row in random.sample(candidates, SMOKE_SAMPLE_SIZE):
+        ordinals[source_group] = ordinals.get(source_group, 0) + 1
+        records.append(
+            make_record(
+                source_csv=source_csv,
+                row=row,
+                selection=selection,
+                source_group=source_group,
+                ordinal=ordinals[source_group],
             )
+        )
 
     return records
 
@@ -146,17 +121,21 @@ def write_jsonl(records: List[Dict[str, object]], path: Path) -> None:
 
 def summarize(records: List[Dict[str, object]]) -> None:
     print("Source CSV files:")
-    for source_group in SELECTIONS:
-        first_record = next(record for record in records if record["source_group"] == normalize_department(source_group))
-        print(f"  - {first_record['source_csv']}")
+    for source_group in SOURCE_GROUPS:
+        matching_record = next(
+            (record for record in records if record["source_group"] == normalize_department(source_group)),
+            None,
+        )
+        if matching_record is not None:
+            print(f"  - {matching_record['source_csv']}")
 
     print("Selection counts:")
-    for source_group in SELECTIONS:
+    for source_group in SOURCE_GROUPS:
         count = sum(1 for record in records if record["source_group"] == normalize_department(source_group))
         print(f"  - {source_group}: {count}")
 
     print("Diseases:")
-    for source_group in SELECTIONS:
+    for source_group in SOURCE_GROUPS:
         values = sorted({str(record["disease"]) for record in records if record["source_group"] == normalize_department(source_group)})
         print(f"  - {source_group}: {', '.join(values)}")
 
@@ -165,8 +144,8 @@ def summarize(records: List[Dict[str, object]]) -> None:
 
 def main() -> None:
     records = build_records()
-    if len(records) != 20:
-        raise ValueError(f"Expected 20 total records, found {len(records)}")
+    if len(records) != SMOKE_SAMPLE_SIZE:
+        raise ValueError(f"Expected {SMOKE_SAMPLE_SIZE} total records, found {len(records)}")
     write_jsonl(records, OUTPUT_PATH)
     summarize(records)
 
