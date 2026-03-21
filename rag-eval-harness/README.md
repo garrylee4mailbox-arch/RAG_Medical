@@ -179,3 +179,10 @@ python -m src.eval.run_eval --run smoke --rag-mode inproc
 ## 医疗免责声明
 
 本项目仅用于研究/教学，不提供医疗建议。任何健康问题请咨询专业医生。
+
+---
+
+## OpenAI 兼容接口说明
+
+- 阿里云百炼 / DashScope：先在 `.env` 里填写 `COMPATIBLE_API_KEY`，再在 `configs/systems.yaml` 里设置 `api_llm_only.base_url` 和 `api_llm_only.model`
+- 以后切换到其他 OpenAI 兼容平台时，通常只需要改 `base_url`、`model` 和对应的密钥环境变量，不要先修改核心代码

@@ -14,22 +14,22 @@ def generate_report(run_dir: str, records: List[AnswerRecord]) -> None:
 
     lines=[]
     lines.append(f"# Evaluation Report: {Path(run_dir).name}\n")
-    lines.append("## Retrieval-Level Metrics\n")
+    lines.append("## Disease-level Metrics\n")
     lines.append("These metrics diagnose retrieval behavior: how many contexts were returned, how strong the retrieved scores were, and how often the system refused.\n")
     if metrics:
-        headers=["System","Bucket","Count","AvgContexts","AvgTopScore","AvgMeanScore","RefusalRate"]
+        headers=["System","Disease","Count","AvgContexts","AvgTopScore","AvgMeanScore","RefusalRate"]
         lines.append("| " + " | ".join(headers) + " |")
         lines.append("|" + "|".join(["---"]*len(headers)) + "|")
         for m in metrics:
-            lines.append(f"| {m['system']} | {m['bucket']} | {m['count']} | {m['retrieval_count_avg']:.2f} | {m['top_score_avg']:.2f} | {m['avg_score_avg']:.2f} | {m['refusal_rate']:.2f} |")
+            lines.append(f"| {m['system']} | {m['disease']} | {m['count']} | {m['retrieval_count_avg']:.2f} | {m['top_score_avg']:.2f} | {m['avg_score_avg']:.2f} | {m['refusal_rate']:.2f} |")
         lines.append("")
     else:
         lines.append("No metrics.\n")
 
-    lines.append("## Answer-Level Metrics\n")
+    lines.append("## Per-disease Evaluation\n")
     lines.append("These metrics evaluate final generated answer quality by embedding similarity between the generated answer and the gold answer.\n")
     if metrics:
-        headers=["System","Bucket","Count","ScoredRate","AnswerSimAvg","AnswerSimStd","AnswerSimMin","AnswerSimMax"]
+        headers=["System","Disease","Count","ScoredRate","AnswerSimAvg","AnswerSimStd","AnswerSimMin","AnswerSimMax"]
         lines.append("| " + " | ".join(headers) + " |")
         lines.append("|" + "|".join(["---"]*len(headers)) + "|")
         for m in metrics:
@@ -37,7 +37,7 @@ def generate_report(run_dir: str, records: List[AnswerRecord]) -> None:
             std = "-" if m["answer_similarity_std"] is None else f"{m['answer_similarity_std']:.3f}"
             min_v = "-" if m["answer_similarity_min"] is None else f"{m['answer_similarity_min']:.3f}"
             max_v = "-" if m["answer_similarity_max"] is None else f"{m['answer_similarity_max']:.3f}"
-            lines.append(f"| {m['system']} | {m['bucket']} | {m['count']} | {m['answer_scored_rate']:.2f} | {avg} | {std} | {min_v} | {max_v} |")
+            lines.append(f"| {m['system']} | {m['disease']} | {m['count']} | {m['answer_scored_rate']:.2f} | {avg} | {std} | {min_v} | {max_v} |")
         lines.append("")
     else:
         lines.append("No metrics.\n")

@@ -9,10 +9,22 @@ rag:
   cache_dir: null
 
 ollama_llm_only:
-  model: llama3
+  # 这里必须填写本地 Ollama 已安装的模型名，并且要与 `ollama list` 一致
+  model: qwen3
   temperature: 0.0
   max_tokens: 256
   # base_url: http://localhost:11434
+
+api_llm_only:
+  enabled: true
+  provider: openai_compatible
+  # 这里填写 OpenAI 兼容接口的 Base URL（例如阿里云百炼 / DashScope）
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  # 这里填写模型名，例如 qwen-max / qwen-plus 等
+  model: qwen3-max
+  # 这里填写读取 API Key 的环境变量名；以后更换 API 平台时，优先改这里，不要先改代码
+  api_key_env: COMPATIBLE_API_KEY
+  timeout: 120
 
 openai_llm_only:
   model: gpt-3.5-turbo

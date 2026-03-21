@@ -8,12 +8,17 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 from tqdm import tqdm
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None  # type: ignore
 
 from ..rag import rag_adapter
 from ..rag.rag_api_client import RagApiClient
 from ..rag import rag_config as rag_defaults
 from ..llm.ollama_client import OllamaClient
 from ..llm.openai_client import OpenAIClient
+from ..llm.openai_compatible_client import OpenAICompatibleClient
 from .answer_similarity_scoring import AnswerSimilarityScorer, build_answer_similarity_scorer
 from .schemas import AnswerRecord
 from .io_utils import load_questions, write_jsonl, write_csv, snapshot_config, aggregate_metrics
@@ -26,7 +31,8 @@ def build_answer_record(
     *,
     run_id: str,
     question_id: str,
-    bucket: str,
+    disease: str,
+    source_group: Optional[str],
     question: str,
     gold_answer: Optional[str],
     system_name: str,
@@ -54,11 +60,12 @@ def build_answer_record(
     return AnswerRecord(
         run_id=run_id,
         question_id=question_id,
-        bucket=bucket,
+        disease=disease,
         question=question,
         system_name=system_name,
         answer=answer,
         gold_answer=gold_answer,
+        source_group=source_group,
         answer_similarity=answer_similarity,
         normalized_answer_for_scoring=normalized_answer,
         normalized_gold_answer_for_scoring=normalized_gold_answer,
@@ -89,6 +96,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = ap.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[2]
+    if load_dotenv is not None:
+        load_dotenv(repo_root / ".env")
     systems_cfg = yaml.safe_load((repo_root/"configs/systems.yaml").read_text(encoding="utf-8"))
     runs_cfg = yaml.safe_load((repo_root/"configs/runs.yaml").read_text(encoding="utf-8"))
 
@@ -96,10 +105,30 @@ def main(argv: Optional[List[str]] = None) -> None:
         raise ValueError(f"Run '{args.run}' not in configs/runs.yaml")
     run_cfg = runs_cfg[args.run]
 
-    system_names = [s.strip() for s in args.systems.split(",")] if args.systems else list(run_cfg.get("systems", []))
+    run_config_systems = list(run_cfg.get("systems", []))
+    cli_override_systems = [s.strip() for s in args.systems.split(",")] if args.systems else None
+    selection_source = "cli_override" if cli_override_systems is not None else "run_config"
+    system_names = list(cli_override_systems) if cli_override_systems is not None else list(run_config_systems)
+
+    print(f"[INFO] run = {args.run}")
+    print(f"[INFO] systems from runs.yaml = {run_config_systems}")
+    if cli_override_systems is not None:
+        print(f"[INFO] systems from CLI override = {cli_override_systems}")
+    print(f"[INFO] selection_source = {selection_source}")
+
     if "openai_llm_only" in system_names and not os.getenv("OPENAI_API_KEY"):
         print("[WARN] OPENAI_API_KEY not set; skip openai_llm_only")
         system_names = [s for s in system_names if s != "openai_llm_only"]
+    if "api_llm_only" in system_names:
+        compatible_cfg = systems_cfg.get("api_llm_only", {})
+        if compatible_cfg.get("enabled", True) is False:
+            system_names = [s for s in system_names if s != "api_llm_only"]
+        compatible_key_env = compatible_cfg.get("api_key_env", "COMPATIBLE_API_KEY")
+        if "api_llm_only" in system_names and not os.getenv(compatible_key_env):
+            print(f"[WARN] {compatible_key_env} not set; skip api_llm_only")
+            system_names = [s for s in system_names if s != "api_llm_only"]
+
+    print(f"[INFO] final selected system_names = {system_names}")
 
     rag_mode = args.rag_mode or run_cfg.get("rag_mode") or systems_cfg["rag"].get("mode", "http")
     rag_base_url = args.rag_base_url or systems_cfg["rag"].get("base_url", "http://127.0.0.1:8008")
@@ -133,12 +162,24 @@ def main(argv: Optional[List[str]] = None) -> None:
     ollama = None
     if "ollama_llm_only" in system_names:
         c = systems_cfg["ollama_llm_only"]
-        ollama = OllamaClient(model=c.get("model","llama3"), temperature=c.get("temperature",0.0), max_tokens=c.get("max_tokens",256), base_url=c.get("base_url"))
+        ollama = OllamaClient(model=c.get("model","qwen3"), temperature=c.get("temperature",0.0), max_tokens=c.get("max_tokens",256), base_url=c.get("base_url"))
 
     openai_cli = None
     if "openai_llm_only" in system_names:
         c = systems_cfg["openai_llm_only"]
         openai_cli = OpenAIClient(model=c.get("model","gpt-3.5-turbo"), temperature=c.get("temperature",0.0), max_tokens=c.get("max_tokens",256), base_url=c.get("base_url"))
+
+    compatible_cli = None
+    if "api_llm_only" in system_names:
+        c = systems_cfg["api_llm_only"]
+        compatible_cli = OpenAICompatibleClient(
+            api_key=os.getenv(c.get("api_key_env", "COMPATIBLE_API_KEY")),
+            base_url=c.get("base_url") or os.getenv("COMPATIBLE_API_BASE_URL"),
+            model=c.get("model") or os.getenv("COMPATIBLE_API_MODEL") or "qwen-plus",
+            timeout=c.get("timeout", 120.0),
+            temperature=c.get("temperature", 0.0),
+            max_tokens=c.get("max_tokens"),
+        )
 
     answer_scorer = build_answer_similarity_scorer(systems_cfg.get("answer_scoring"))
 
@@ -162,7 +203,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                 records.append(build_answer_record(
                     run_id=run_id,
                     question_id=q.id,
-                    bucket=q.bucket,
+                    disease=q.disease,
+                    source_group=q.source_group,
                     question=q.question,
                     gold_answer=q.gold_answer,
                     system_name="rag",
@@ -178,7 +220,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                 records.append(build_answer_record(
                     run_id=run_id,
                     question_id=q.id,
-                    bucket=q.bucket,
+                    disease=q.disease,
+                    source_group=q.source_group,
                     question=q.question,
                     gold_answer=q.gold_answer,
                     system_name=sysname,
@@ -196,7 +239,27 @@ def main(argv: Optional[List[str]] = None) -> None:
                 records.append(build_answer_record(
                     run_id=run_id,
                     question_id=q.id,
-                    bucket=q.bucket,
+                    disease=q.disease,
+                    source_group=q.source_group,
+                    question=q.question,
+                    gold_answer=q.gold_answer,
+                    system_name=sysname,
+                    answer=ans,
+                    contexts=[],
+                    meta=meta,
+                    scorer=answer_scorer,
+                ))
+            elif sysname == "api_llm_only":
+                if compatible_cli is None:
+                    pbar.update(1)
+                    continue
+                ans, meta = compatible_cli.generate(q.question)
+                meta.setdefault("retrieval_count", 0)
+                records.append(build_answer_record(
+                    run_id=run_id,
+                    question_id=q.id,
+                    disease=q.disease,
+                    source_group=q.source_group,
                     question=q.question,
                     gold_answer=q.gold_answer,
                     system_name=sysname,
@@ -213,6 +276,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     snapshot_config({"systems": systems_cfg, "runs": runs_cfg}, {
         "run": args.run,
         "systems": system_names,
+        "selected_system_names": system_names,
+        "selection_source": selection_source,
+        "run_config_systems": run_config_systems,
+        "cli_override_systems": cli_override_systems,
         "seed": args.seed,
         "limit": args.limit,
         "top_n": top_n,

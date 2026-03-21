@@ -61,3 +61,5 @@ faiss_index/
 # ============================
 .vscode/
 *.code-workspace
+
+ollama-models/

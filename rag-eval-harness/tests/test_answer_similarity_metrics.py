@@ -7,11 +7,12 @@ def test_aggregate_metrics_includes_answer_similarity_columns():
         AnswerRecord(
             run_id="run1",
             question_id="q1",
-            bucket="bucket1",
+            disease="骨癌",
             question="question",
             system_name="rag",
             answer="answer",
             gold_answer="gold",
+            source_group="oncology",
             answer_similarity=0.75,
             normalized_answer_for_scoring="answer",
             normalized_gold_answer_for_scoring="gold",

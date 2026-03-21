@@ -19,12 +19,21 @@ def load_questions(path: str, limit: Optional[int] = None, seed: Optional[int] =
                 continue
             obj = json.loads(line)
             qid = str(obj.get("id") or f"q{i+1:04d}")
-            bucket = str(obj.get("bucket","default"))
+            disease = str(obj.get("disease") or obj.get("dept") or obj.get("bucket") or obj.get("department") or "unknown")
+            source_group = obj.get("source_group")
             q = obj.get("question") or obj.get("ask")
             if not q:
                 raise ValueError(f"Missing question at line {i+1}")
             gold = obj.get("gold_answer") or obj.get("answer")
-            qs.append(Question(id=qid, bucket=bucket, question=str(q).strip(), gold_answer=gold))
+            qs.append(
+                Question(
+                    id=qid,
+                    disease=disease,
+                    question=str(q).strip(),
+                    gold_answer=gold,
+                    source_group=str(source_group).strip() if source_group else None,
+                )
+            )
     if limit is not None and limit < len(qs):
         import random
         rnd = random.Random(seed)
@@ -43,15 +52,31 @@ def write_csv(rows: Iterable[Dict[str, Any]], path: str) -> None:
     df = pd.DataFrame(list(rows))
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(p, index=False)
+    df.to_csv(p, index=False, encoding="utf-8-sig")
 
 def snapshot_config(config: Dict[str, Any], run_args: Dict[str, Any], out_dir: str) -> None:
+    selected_system_names = list(run_args.get("selected_system_names", run_args.get("systems", [])))
+    systems_cfg = dict(config.get("systems", {}))
+    effective_systems = {name: systems_cfg.get(name) for name in selected_system_names if name in systems_cfg}
     snap: Dict[str, Any] = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "python_version": sys.version,
         "platform": sys.platform,
         "config": config,
         "run_args": run_args,
+        "selected_system_names": selected_system_names,
+        "effective_run": {
+            "run": run_args.get("run"),
+            "selected_system_names": selected_system_names,
+            "seed": run_args.get("seed"),
+            "limit": run_args.get("limit"),
+            "top_n": run_args.get("top_n"),
+            "score_threshold": run_args.get("score_threshold"),
+            "rag_mode": run_args.get("rag_mode"),
+            "rag_base_url": run_args.get("rag_base_url"),
+            "rag_auto_index": run_args.get("rag_auto_index"),
+        },
+        "effective_systems": effective_systems,
     }
     try:
         commit = subprocess.check_output(["git","rev-parse","HEAD"], cwd=Path(out_dir).resolve().parents[1]).decode().strip()
@@ -67,7 +92,7 @@ def aggregate_metrics(records: List[AnswerRecord]) -> List[Dict[str, Any]]:
     import numpy as np
     groups = defaultdict(list)
     for r in records:
-        groups[(r.system_name, r.bucket)].append(r)
+        groups[(r.system_name, r.disease)].append(r)
 
     def is_refusal(text: str) -> bool:
         t = text.lower()
@@ -75,7 +100,7 @@ def aggregate_metrics(records: List[AnswerRecord]) -> List[Dict[str, Any]]:
         return any(p in t for p in phrases)
 
     rows: List[Dict[str, Any]] = []
-    for (system, bucket), recs in groups.items():
+    for (system, disease), recs in groups.items():
         top_scores=[]; mean_scores=[]; rc=[]; refusals=0; answer_scores=[]
         for r in recs:
             rc.append(int(r.meta.get("retrieval_count", 0)))
@@ -89,7 +114,7 @@ def aggregate_metrics(records: List[AnswerRecord]) -> List[Dict[str, Any]]:
         n=len(recs)
         rows.append({
             "system": system,
-            "bucket": bucket,
+            "disease": disease,
             "count": n,
             "retrieval_count_avg": float(np.mean(rc)) if n else 0.0,
             "top_score_avg": float(np.mean(top_scores)) if n else 0.0,

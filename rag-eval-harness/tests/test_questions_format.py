@@ -7,7 +7,7 @@ def _check(path: Path):
         if not line.strip():
             continue
         obj = json.loads(line)
-        assert obj.get("bucket")
+        assert obj.get("disease") or obj.get("dept") or obj.get("bucket")
         assert obj.get("question")
 
 def test_smoke_questions():

@@ -12,7 +12,6 @@ from typing import Dict, List
 @dataclass(frozen=True)
 class Selection:
     row_index: int
-    bucket: str
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -25,34 +24,43 @@ OUTPUT_PATH = REPO_ROOT / "data" / "questions" / "smoke_v2.0.jsonl"
 # normalization only.
 SELECTIONS: Dict[str, List[Selection]] = {
     "Oncology": [
-        Selection(0, "symptoms"),
-        Selection(1, "treatment"),
-        Selection(22, "supportive_care"),
-        Selection(35, "diagnosis"),
-        Selection(44, "chemotherapy"),
-        Selection(62, "diet"),
-        Selection(80, "diet"),
-        Selection(88, "symptoms"),
-        Selection(97, "treatment"),
-        Selection(184, "prognosis"),
+        Selection(0),
+        Selection(1),
+        Selection(22),
+        Selection(35),
+        Selection(44),
+        Selection(62),
+        Selection(80),
+        Selection(88),
+        Selection(97),
+        Selection(184),
     ],
     "Pediatric": [
-        Selection(0, "weight_management"),
-        Selection(74, "ent_treatment"),
-        Selection(188, "digestive_care"),
-        Selection(194, "neonatal_treatment"),
-        Selection(195, "neonatal_symptoms"),
-        Selection(197, "digestive_care"),
-        Selection(198, "nutrition_deficiency"),
-        Selection(199, "neuro_treatment"),
-        Selection(201, "neuro_diagnosis"),
-        Selection(202, "ent_symptoms"),
+        Selection(0),
+        Selection(74),
+        Selection(188),
+        Selection(194),
+        Selection(195),
+        Selection(197),
+        Selection(198),
+        Selection(199),
+        Selection(201),
+        Selection(202),
     ],
 }
 
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").replace("\r", " ").replace("\n", " ")).strip()
+
+
+def normalize_department(raw_department: str) -> str:
+    value = normalize_text(raw_department).lower()
+    if value in {"oncology"} or "oncology" in value:
+        return "oncology"
+    if value in {"pediatric", "pediatrics"} or "pediatric" in value:
+        return "pediatrics"
+    return "unknown"
 
 
 def find_source_csv(department: str) -> Path:
@@ -74,24 +82,29 @@ def make_record(
     source_csv: Path,
     row: Dict[str, str],
     selection: Selection,
-    department: str,
+    source_group: str,
     ordinal: int,
 ) -> Dict[str, object]:
     question = normalize_text(row.get("ask", ""))
     gold_answer = normalize_text(row.get("answer", ""))
+    disease = normalize_text(row.get("department", ""))
     title = normalize_text(row.get("title", ""))
-    if not question or not gold_answer:
-        raise ValueError(f"Selected row {selection.row_index} in {source_csv} has empty ask/answer")
+    if not question:
+        raise ValueError(f"Selected row {selection.row_index} in {source_csv} has empty 'ask'")
+    if not gold_answer:
+        raise ValueError(f"Selected row {selection.row_index} in {source_csv} has empty 'answer'")
+    if not disease:
+        raise ValueError(f"Selected row {selection.row_index} in {source_csv} has empty 'department'")
 
-    prefix = "oncology" if department == "Oncology" else "pediatric"
+    prefix = "oncology" if source_group == "Oncology" else "pediatric"
     return {
         "id": f"smoke_v2_{prefix}_{ordinal:03d}",
         "question": question,
         "gold_answer": gold_answer,
-        "bucket": selection.bucket,
+        "disease": disease,
+        "source_group": normalize_department(source_group),
         "source_csv": source_csv.relative_to(PROJECT_ROOT).as_posix(),
         "source_row_id": selection.row_index,
-        "department": department,
         "title": title,
     }
 
@@ -100,23 +113,23 @@ def build_records() -> List[Dict[str, object]]:
     records: List[Dict[str, object]] = []
     seen_sources = set()
 
-    for department, selections in SELECTIONS.items():
-        source_csv = find_source_csv(department)
+    for source_group, selections in SELECTIONS.items():
+        source_csv = find_source_csv(source_group)
         rows = load_rows(source_csv)
 
         for ordinal, selection in enumerate(selections, start=1):
             if selection.row_index >= len(rows):
                 raise IndexError(f"Row {selection.row_index} is out of range for {source_csv}")
-            source_key = (department, selection.row_index)
+            source_key = (source_group, selection.row_index)
             if source_key in seen_sources:
-                raise ValueError(f"Duplicate source row selected: {department} row {selection.row_index}")
+                raise ValueError(f"Duplicate source row selected: {source_group} row {selection.row_index}")
             seen_sources.add(source_key)
             records.append(
                 make_record(
                     source_csv=source_csv,
                     row=rows[selection.row_index],
                     selection=selection,
-                    department=department,
+                    source_group=source_group,
                     ordinal=ordinal,
                 )
             )
@@ -133,19 +146,19 @@ def write_jsonl(records: List[Dict[str, object]], path: Path) -> None:
 
 def summarize(records: List[Dict[str, object]]) -> None:
     print("Source CSV files:")
-    for department in SELECTIONS:
-        first_record = next(record for record in records if record["department"] == department)
+    for source_group in SELECTIONS:
+        first_record = next(record for record in records if record["source_group"] == normalize_department(source_group))
         print(f"  - {first_record['source_csv']}")
 
     print("Selection counts:")
-    for department in SELECTIONS:
-        count = sum(1 for record in records if record["department"] == department)
-        print(f"  - {department}: {count}")
+    for source_group in SELECTIONS:
+        count = sum(1 for record in records if record["source_group"] == normalize_department(source_group))
+        print(f"  - {source_group}: {count}")
 
-    print("Buckets:")
-    for department in SELECTIONS:
-        values = sorted({str(record["bucket"]) for record in records if record["department"] == department})
-        print(f"  - {department}: {', '.join(values)}")
+    print("Diseases:")
+    for source_group in SELECTIONS:
+        values = sorted({str(record["disease"]) for record in records if record["source_group"] == normalize_department(source_group)})
+        print(f"  - {source_group}: {', '.join(values)}")
 
     print(f"Output: {OUTPUT_PATH.resolve()}")
 

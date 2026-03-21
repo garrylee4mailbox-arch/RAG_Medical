@@ -1,11 +1,11 @@
 smoke:
   questions: data/questions/smoke_v2.0.jsonl
-  systems: [rag, ollama_llm_only]
+  systems: [rag, ollama_llm_only, api_llm_only]
   rag_mode: http
   rag_auto_index: true
 
 full:
   questions: data/questions/full_v1.jsonl
-  systems: [rag, ollama_llm_only, openai_llm_only]
+  systems: [rag, ollama_llm_only, api_llm_only, openai_llm_only]
   rag_mode: http
   rag_auto_index: true

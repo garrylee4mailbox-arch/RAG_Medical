@@ -70,7 +70,8 @@ except Exception as e:  # noqa
 # 【中文】Embedding 模型与 LLM 模型名（保持你原设置）
 # 【English】Embedding + LLM model names (kept as in your original code)
 EMBEDDING_MODEL = "nomic-embed-text"
-LANGUAGE_MODEL = "llama3"
+# 本地 Ollama 生成模型名称，必须与 `ollama list` 里显示的模型名完全一致
+LANGUAGE_MODEL = "qwen3"
 
 # 【中文】全局向量库：存储每条 chunk 的 embedding + metadata
 # 【English】Global vector DB: each entry stores embedding + metadata
